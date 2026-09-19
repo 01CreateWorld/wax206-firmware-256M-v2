@@ -1,1 +1,18 @@
-
+--- a/target/linux/mediatek/dts/mt7981b-netgear-wax206.dts
++++ b/target/linux/mediatek/dts/mt7981b-netgear-wax206.dts
+@@ -105,8 +105,8 @@
+ 			partition@2000000 {
+ 				label = "ubi";
+ 				reg = <0x2000000 0xe000000>;
+ 			};
+ 		};
+ 	};
+ };
+--- a/target/linux/mediatek/image/filogic.mk
++++ b/target/linux/mediatek/image/filogic.mk
+@@ -298,6 +298,7 @@ define Device/netgear_wax206
+   DEVICE_MODEL := WAX206
+   DEVICE_PACKAGES := kmod-mt7915e kmod-mt7981-firmware mt7981-wo-firmware
++  UBI_ROOT_SIZE := 220MiB
+ endef
+ TARGET_DEVICES += netgear_wax206
