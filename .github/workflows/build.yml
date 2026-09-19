@@ -17,27 +17,27 @@ jobs:
         run: |
           sudo apt update -y
           sudo apt install -y build-essential clang flex bison g++ gawk gcc-multilib g++-multilib \
-            gettext git libncurses5-dev libssl-dev python3-setuptools python3-dev rsync unzip zlib1g-dev file wget
+            gettext git libncurses5-dev libssl-dev python3-setuptools python3-dev rsync unzip zlib1g-dev file wget device-tree-compiler u-boot-tools
 
       - name: 克隆 OpenWrt 官方源码
         run: |
           git clone --depth 1 https://github.com/openwrt/openwrt.git openwrt
-          cp -r patches openwrt/
-          cp diy.sh openwrt/
+          [ -d "patches" ] && cp -r patches openwrt/
+          [ -f "diy.sh" ] && cp diy.sh openwrt/
           cp .config openwrt/.config
 
       - name: 执行准备脚本与 Feeds
         run: |
           cd openwrt
-          chmod +x diy.sh
-          ./diy.sh
+          [ -f "diy.sh" ] && chmod +x diy.sh && ./diy.sh
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
           make defconfig
 
       - name: 下载依赖包
         run: |
           cd openwrt
           make download -j$(nproc)
-          find dl -size -1024c -exec ls -l {} \;
           find dl -size -1024c -exec rm -f {} \;
 
       - name: 编译固件
@@ -48,10 +48,13 @@ jobs:
       - name: 整理产物
         run: |
           mkdir -p bin_output
-          find openwrt/bin/targets/mediatek/filogic/ -type f \( -name "*wax206*initramfs*.bin" -o -name "*wax206*sysupgrade*.bin" \) -exec cp {} bin_output/ \;
+          # 正确匹配 mediatek/mt7622 下生成的 itb (recovery) 与 bin/img (sysupgrade/factory)
+          find openwrt/bin/targets/mediatek/mt7622/ -type f \( -name "*wax206*.itb" -o -name "*wax206*.bin" -o -name "*wax206*.img" \) -exec cp -v {} bin_output/ \;
+          ls -lh bin_output/
 
       - name: 上传构建产物
         uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: netgear-wax206-firmware
           path: bin_output/
