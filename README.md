@@ -1,0 +1,1 @@
+# wax206-firmware-256M-v2
