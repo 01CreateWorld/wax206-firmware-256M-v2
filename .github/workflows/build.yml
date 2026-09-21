@@ -2,10 +2,7 @@ name: Build WAX206 256M OpenWrt
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-
+ 
 jobs:
   build:
     runs-on: ubuntu-22.04
@@ -19,17 +16,29 @@ jobs:
           sudo apt install -y build-essential clang flex bison g++ gawk gcc-multilib g++-multilib \
             gettext git libncurses5-dev libssl-dev python3-setuptools python3-dev rsync unzip zlib1g-dev file wget device-tree-compiler u-boot-tools
 
-      - name: 克隆 OpenWrt 官方源码
+      - name: 克隆源码并直接注入 256M 分区修改
         run: |
           git clone --depth 1 https://github.com/openwrt/openwrt.git openwrt
-          [ -d "patches" ] && cp -r patches openwrt/
-          [ -f "diy.sh" ] && cp diy.sh openwrt/
           cp .config openwrt/.config
+          
+          cd openwrt
+          # 1. 扩展 DTS 分区尺寸至约 192MB
+          sed -i 's/reg = <0x2000000 0x2000000>;/reg = <0x4000000 0xc000000>;/g' target/linux/mediatek/dts/mt7622-netgear-wax206.dts
+          sed -i 's/partition@2000000 {/partition@4000000 {/g' target/linux/mediatek/dts/mt7622-netgear-wax206.dts
 
-      - name: 执行准备脚本与 Feeds
+          # 2. 声明 Makefile 卷尺寸
+          sed -i '/define Device\/netgear_wax206/,/endef/ s/SUPPORTED_DEVICES += netgear,wax206/SUPPORTED_DEVICES += netgear,wax206\n  UBI_ROOT_SIZE := 160MiB/' target/linux/mediatek/image/mt7622.mk
+
+          # 3. 严格校验熔断：若未成功替换，立即红牌退出，杜绝无效编译
+          echo "====== 检查 DTS 替换状态 ======"
+          grep -n "0xc000000" target/linux/mediatek/dts/mt7622-netgear-wax206.dts || { echo "::error::DTS 替换失败！"; exit 1; }
+
+          echo "====== 检查 Makefile 替换状态 ======"
+          grep -n "UBI_ROOT_SIZE := 160MiB" target/linux/mediatek/image/mt7622.mk || { echo "::error::Makefile 替换失败！"; exit 1; }
+
+      - name: 更新并安装 Feeds
         run: |
           cd openwrt
-          [ -f "diy.sh" ] && chmod +x diy.sh && ./diy.sh
           ./scripts/feeds update -a
           ./scripts/feeds install -a
           make defconfig
@@ -48,7 +57,6 @@ jobs:
       - name: 整理产物
         run: |
           mkdir -p bin_output
-          # 正确匹配 mediatek/mt7622 下生成的 itb (recovery) 与 bin/img (sysupgrade/factory)
           find openwrt/bin/targets/mediatek/mt7622/ -type f \( -name "*wax206*.itb" -o -name "*wax206*.bin" -o -name "*wax206*.img" \) -exec cp -v {} bin_output/ \;
           ls -lh bin_output/
 
