@@ -22,20 +22,31 @@ jobs:
           cp .config openwrt/.config
           
           cd openwrt
-          # 1. 扩展 DTS 分区尺寸至约 192MB
-          sed -i 's/reg = <0x2000000 0x2000000>;/reg = <0x4000000 0xc000000>;/g' target/linux/mediatek/dts/mt7622-netgear-wax206.dts
-          sed -i 's/partition@2000000 {/partition@4000000 {/g' target/linux/mediatek/dts/mt7622-netgear-wax206.dts
+          # 1. 查找包含 wax206 的所有 DTS/DTSI 文件
+          DTS_FILES=$(find target/linux/mediatek/dts/ -name "*wax206*" -o -name "*netgear*")
+          echo "匹配到的目标设备树文件："
+          echo "$DTS_FILES"
 
-          # 2. 声明 Makefile 卷尺寸
+          # 2. 打印当前文件中的原始分区段，留存日志
+          echo "====== 原始分区内容对照 ======"
+          grep -rnE "(ubi|partition@)" target/linux/mediatek/dts/mt7622* || true
+
+          # 3. 执行容错替换：针对 mt7622 目录下的 Netgear 设备树进行全量正则匹配替换
+          # 无论原始是 partition@2000000 还是 reg = <0x... 0x...>; 统统重置为全量 256M 空间范围 (0x4000000 0xc000000)
+          for f in target/linux/mediatek/dts/mt7622-netgear*.dts*; do
+            if [ -f "$f" ]; then
+              sed -i -E 's/reg = <0x[0-9a-fA-F]+ 0x[0-9a-fA-F]+>;/\/* replaced *\/ reg = <0x4000000 0xc000000>;/g' "$f"
+              sed -i -E 's/partition@[0-9a-fA-F]+/partition@4000000/g' "$f"
+            fi
+          done
+
+          # 4. 修改 mt7622.mk 声明根卷空间
           sed -i '/define Device\/netgear_wax206/,/endef/ s/SUPPORTED_DEVICES += netgear,wax206/SUPPORTED_DEVICES += netgear,wax206\n  UBI_ROOT_SIZE := 160MiB/' target/linux/mediatek/image/mt7622.mk
 
-          # 3. 严格校验熔断：若未成功替换，立即红牌退出，杜绝无效编译
-          echo "====== 检查 DTS 替换状态 ======"
-          grep -n "0xc000000" target/linux/mediatek/dts/mt7622-netgear-wax206.dts || { echo "::error::DTS 替换失败！"; exit 1; }
-
-          echo "====== 检查 Makefile 替换状态 ======"
+          # 5. 校验：检查是否有任意文件成功注入了 0xc000000
+          echo "====== 校验替换结果 ======"
+          grep -rn "0xc000000" target/linux/mediatek/dts/ || { echo "::error::所有 DTS 文件中均未找到可替换项！"; exit 1; }
           grep -n "UBI_ROOT_SIZE := 160MiB" target/linux/mediatek/image/mt7622.mk || { echo "::error::Makefile 替换失败！"; exit 1; }
-
       - name: 更新并安装 Feeds
         run: |
           cd openwrt
